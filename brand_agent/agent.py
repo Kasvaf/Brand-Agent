@@ -20,7 +20,7 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_SEARCH_API_KEY = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
 GOOGLE_SEARCH_ENGINE_ID = os.environ.get("GOOGLE_SEARCH_ENGINE_ID", "")
 PERPLEXITY_API = "https://api.perplexity.ai/chat/completions"
-GEMINI_IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-2.0-flash-exp-image-generation")
+GEMINI_IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 OUTPUT_DIR = Path(__file__).parent / "output"
 
@@ -660,6 +660,48 @@ def assemble_brand_json(
         voice = json.loads(voice_json) if isinstance(voice_json, str) else voice_json
     except json.JSONDecodeError as e:
         return {"error": f"Invalid JSON in input: {str(e)}"}
+
+    # --- Normalize voice object to match Content-Agent schema ---
+    # Gemini sometimes uses alternate key names; remap to the canonical schema.
+    _voice_key_map = {
+        # alternate key -> canonical key
+        "traits": "personality",
+        "personality_traits": "personality",
+        "persona": "personality",
+        "tone_spectrum": "toneSpectrum",
+        "tonespec": "toneSpectrum",
+        "tone": "toneSpectrum",
+        "voice_test": "voiceTest",
+        "test_question": "voiceTest",
+        "test": "voiceTest",
+        "desc": "description",
+        "voice_description": "description",
+    }
+    normalized_voice = {}
+    for k, v in voice.items():
+        canonical = _voice_key_map.get(k, k)
+        normalized_voice[canonical] = v
+    # Drop keys that don't belong in brand.json voice (they belong in voice.json)
+    for drop_key in ("rules", "writingRules", "settings", "voice_id", "voiceName",
+                      "tts", "provider", "model", "similarity_boost", "stability"):
+        normalized_voice.pop(drop_key, None)
+    # Ensure required keys exist with fallbacks
+    if "personality" not in normalized_voice:
+        normalized_voice["personality"] = ["Professional", "Modern", "Authentic"]
+    if isinstance(normalized_voice["personality"], str):
+        normalized_voice["personality"] = [t.strip() for t in normalized_voice["personality"].split(",")]
+    if "description" not in normalized_voice:
+        normalized_voice["description"] = f"The voice of {name}."
+    if "toneSpectrum" not in normalized_voice:
+        normalized_voice["toneSpectrum"] = {
+            t.lower(): 0.8 for t in normalized_voice["personality"]
+        }
+        normalized_voice["toneSpectrum"]["salesy"] = 0.0
+        normalized_voice["toneSpectrum"]["corporate"] = 0.15
+    if "voiceTest" not in normalized_voice:
+        p = normalized_voice["personality"]
+        normalized_voice["voiceTest"] = f"Does this sound like a {p[0].lower()}, {p[1].lower() if len(p) > 1 else 'modern'} brand?"
+    voice = normalized_voice
 
     lines = [l.strip() for l in campaign_lines.split("|") if l.strip()]
     if len(lines) < 5:
