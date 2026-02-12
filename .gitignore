@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+brand_agent/output/
+*.egg-info/
+dist/
+build/
+.venv/
